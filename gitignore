@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.venv/
+*.egg-info/
+
+# Node
+node_modules/
+dist/
+build/
+
+# Env / secrets
+.env
+.env.local
+*.key
+
+# Data / models (keep repo light)
+*.pt
+*.onnx
+data/raw/
+data/*.mp4
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Logs
+*.log
