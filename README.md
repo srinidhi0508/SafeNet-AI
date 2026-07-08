@@ -30,5 +30,5 @@ _To be filled in as each module comes online._
 
 ## Team
 
-- [Your name] — CV pipeline, RAG agent, architecture diagram, presentation deck
-- [Friend's name] — Sensor simulator, risk engine, React frontend, backend, demo video
+- [Vodnala Srinidhi] — CV pipeline, RAG agent, architecture diagram, presentation deck
+- [Vaduguru Jashwanth Sai] — Sensor simulator, risk engine, React frontend, backend, demo video
