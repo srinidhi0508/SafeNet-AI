@@ -1,0 +1,17 @@
+Incident Report — Synthetic Case File SF-2021-027
+Facility: Steel Processing Plant, Zone 2
+Date: November 2021 (illustrative synthetic case, for demo purposes)
+
+Summary: A pressure buildup in a coolant line coincided with a shift
+changeover. The outgoing shift noted a minor pressure anomaly in the
+handover log, but the incoming shift did not review it before beginning
+routine operations. Pressure continued climbing for another 25 minutes
+before an automatic safety valve released it, causing a loud but
+non-injurious venting event that briefly halted production.
+
+Root cause: Handover logs were not cross-referenced against live sensor
+trends. A minor anomaly noted informally in a log was never escalated to
+an active alert.
+
+Lesson: Shift changeovers combined with any unresolved sensor anomaly in
+the same zone should be treated as elevated risk, not routine handover.

@@ -1,0 +1,15 @@
+Incident Report — Synthetic Case File SF-2022-011
+Facility: Chemical Processing Unit, Zone 3
+Date: July 2022 (illustrative synthetic case, for demo purposes)
+
+Summary: A worker was found without required respiratory protective
+equipment in a zone with moderate but sub-threshold gas readings. CCTV
+footage later showed the worker had entered nearly ten minutes before
+being noticed by a supervisor doing a routine walk-through.
+
+Root cause: PPE compliance was only checked via periodic manual
+walk-throughs, not continuously monitored.
+
+Lesson: Automated PPE detection at zone entry points, combined with
+current gas readings for that zone, would have flagged the entry
+immediately rather than after a ten-minute delay.

@@ -1,0 +1,26 @@
+General Industrial Safety Guideline — Permit-to-Work and Gas Monitoring
+Coordination (Illustrative Summary for Demo Purposes)
+
+Permit-to-work systems and continuous gas monitoring systems should not
+operate in isolation from one another. Common industrial safety practice
+calls for:
+
+1. Any permit issued for hot work, maintenance, or confined-space entry
+   should be automatically cross-checked against live gas sensor readings
+   for the same zone, both before and during the permit's active window.
+
+2. A rising trend in gas concentration, even below the standalone alarm
+   threshold, should be treated as a reason to pause entry under an active
+   permit until the trend is understood.
+
+3. Shift changeovers are a known high-risk window; any unresolved sensor
+   anomaly should be explicitly reviewed and acknowledged by the incoming
+   shift, not passed along informally through a log entry alone.
+
+4. Personal protective equipment compliance should be verified at the
+   point of zone entry wherever automated detection is feasible, rather
+   than relying solely on periodic manual inspection.
+
+These practices are aimed at reducing the gap between when a hazard
+becomes detectable in the data and when a human decision-maker actually
+becomes aware of it.

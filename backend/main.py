@@ -20,13 +20,30 @@ Query params (all optional):
 import asyncio
 import json
 import random
+import sys
 from dataclasses import asdict
+from datetime import datetime
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from sensor_simulator import Reading, SAFE_RANGES, GAS_DANGER_THRESHOLD, ZONES, _now, _unit_for
 from risk_engine import PermitLog, RiskEngine
+
+# rag_agent.py lives in a sibling folder (../rag-agent), not installed as a
+# package — add it to the path so we can import it directly.
+RAG_AGENT_DIR = Path(__file__).resolve().parent.parent / "rag-agent"
+if str(RAG_AGENT_DIR) not in sys.path:
+    sys.path.insert(0, str(RAG_AGENT_DIR))
+
+try:
+    from rag_agent import generate_warning
+    RAG_AVAILABLE = True
+except Exception as _rag_import_error:  # missing deps, no ingested data, etc.
+    RAG_AVAILABLE = False
+    print(f"[SafeNet] RAG agent unavailable, alerts will skip historical "
+          f"context: {_rag_import_error}")
 
 app = FastAPI(title="SafeNet backend")
 
@@ -79,9 +96,45 @@ async def async_run_scenario(danger_zone: str = "zone_4", ramp_seconds: int = 18
         await asyncio.sleep(interval)
 
 
+async def send_rag_context(websocket: WebSocket, alert: dict, lock: asyncio.Lock):
+    """
+    Runs in the background after a compound alert fires. Calls the RAG
+    agent (which may block for several seconds, or longer if it's
+    retrying a rate limit) in a thread so it never blocks the sensor
+    stream, then sends the result as a follow-up message once ready.
+    """
+    situation = (
+        f"Gas rising in {alert['zone']} ({alert['gas_ppm']} ppm, "
+        f"trend {alert['trend_ppm_per_sec']} ppm/s). Reason flagged: {alert['reason']}."
+    )
+    loop = asyncio.get_event_loop()
+    try:
+        # retry_waits=() means one fast attempt only — a rate limit here
+        # should skip the historical warning, not stall the live demo
+        # for up to ~2 minutes waiting on retries.
+        result = await loop.run_in_executor(
+            None, lambda: generate_warning(situation, 3, ())
+        )
+    except Exception as e:
+        result = {"warning": None, "sources": [], "error": str(e)}
+
+    payload = {
+        "type": "rag_context",
+        "zone": alert["zone"],
+        "warning": result["warning"],
+        "sources": result["sources"],
+        "error": result["error"],
+    }
+    async with lock:
+        try:
+            await websocket.send_text(json.dumps(payload))
+        except Exception:
+            pass  # connection likely already closed (scenario ended) — fine to drop
+
+
 @app.get("/")
 def health():
-    return {"status": "ok", "service": "SafeNet backend"}
+    return {"status": "ok", "service": "SafeNet backend", "rag_available": RAG_AVAILABLE}
 
 
 @app.websocket("/ws/stream")
@@ -91,6 +144,11 @@ async def stream(websocket: WebSocket, ramp_seconds: int = 180,
 
     permit_log = PermitLog()
     engine = RiskEngine(permit_log)
+    send_lock = asyncio.Lock()
+
+    async def safe_send(payload: dict):
+        async with send_lock:
+            await websocket.send_text(json.dumps(payload))
 
     try:
         async for reading, progress in async_run_scenario(
@@ -98,27 +156,30 @@ async def stream(websocket: WebSocket, ramp_seconds: int = 180,
         ):
             # Always forward the raw reading — the dashboard's live gauges
             # and charts consume this directly.
-            await websocket.send_text(json.dumps({"type": "reading", **asdict(reading)}))
+            await safe_send({"type": "reading", **asdict(reading)})
 
             if reading.sensor_type != "gas":
                 continue
 
-            from datetime import datetime
             ts = datetime.fromisoformat(reading.timestamp)
             alert = engine.ingest_gas_reading(reading.zone, reading.value, ts, progress)
 
             # Risk score update every gas tick, for a live-moving gauge —
             # separate from the one-time alert event.
-            await websocket.send_text(json.dumps({
+            await safe_send({
                 "type": "risk_update",
                 "zone": reading.zone,
                 "risk_score": engine.risk_score(reading.zone, progress),
-            }))
+            })
 
             if alert:
-                await websocket.send_text(json.dumps(alert))
+                await safe_send(alert)
+                if RAG_AVAILABLE:
+                    # Fire and forget — the sensor stream keeps running
+                    # while this resolves in the background.
+                    asyncio.create_task(send_rag_context(websocket, alert, send_lock))
 
-        await websocket.send_text(json.dumps({"type": "scenario_complete"}))
+        await safe_send({"type": "scenario_complete"})
 
     except WebSocketDisconnect:
         # Client closed the tab/connection — nothing to clean up, the

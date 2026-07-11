@@ -1,0 +1,19 @@
+Incident Report — Synthetic Case File SF-2019-014
+Facility: Chemical Processing Unit, Zone 4
+Date: March 2019 (illustrative synthetic case, for demo purposes)
+
+Summary: A gas leak developed in a storage area while a maintenance permit
+was active for unrelated valve replacement work in the same zone. Gas
+sensors recorded a steady rise in ambient concentration over roughly 40
+minutes, but the maintenance crew was not alerted because the permit
+system and the gas monitoring system were never cross-checked against
+each other. A worker entered the zone to complete the valve replacement
+and was exposed to fumes before evacuation procedures began.
+
+Root cause: No mechanism existed to flag that an active permit and rising
+sensor readings in the same zone represented a compound risk. Each system
+worked correctly on its own, but nothing connected them.
+
+Lesson: Any active permit-to-work in a zone with rising gas concentration
+should trigger an automatic hold on entry, regardless of whether the gas
+level has yet crossed the standalone alarm threshold.
