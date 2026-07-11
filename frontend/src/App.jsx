@@ -45,12 +45,14 @@ export default function App() {
   const [zoneData, setZoneData] = useState({});   // zone -> {gas, temperature, pressure}
   const [riskScores, setRiskScores] = useState({}); // zone -> score
   const [alert, setAlert] = useState(null);
+  const [ragContext, setRagContext] = useState(null); // null = nothing yet, "loading" = waiting, or the payload
   const [log, setLog] = useState([]);
   const wsRef = useRef(null);
 
   const startDemo = useCallback(() => {
     if (wsRef.current) wsRef.current.close();
     setAlert(null);
+    setRagContext(null);
     setLog([]);
     setZoneData({});
     setRiskScores({});
@@ -81,7 +83,10 @@ export default function App() {
         setRiskScores((prev) => ({ ...prev, [msg.zone]: msg.risk_score }));
       } else if (msg.type === "compound_risk_alert") {
         setAlert(msg);
+        setRagContext("loading");
         setLog((prev) => [msg, ...prev]);
+      } else if (msg.type === "rag_context") {
+        setRagContext(msg);
       } else if (msg.type === "scenario_complete") {
         setRunning(false);
         setStatus("complete");
@@ -159,6 +164,40 @@ export default function App() {
             </ul>
           )}
         </section>
+
+        {ragContext && (
+          <section className="panel rag">
+            <h2>Historical Context — RAG Agent</h2>
+            {ragContext === "loading" ? (
+              <div className="rag-loading">
+                <span className="pulse-dot" /> Checking historical incidents…
+              </div>
+            ) : (
+              <>
+                {ragContext.warning ? (
+                  <p className="rag-warning">{ragContext.warning}</p>
+                ) : (
+                  <p className="rag-empty">
+                    {ragContext.error || "No generated warning available for this alert."}
+                  </p>
+                )}
+                {ragContext.sources && ragContext.sources.length > 0 && (
+                  <div className="rag-sources">
+                    <div className="rag-sources-label">Retrieved from:</div>
+                    <ul>
+                      {ragContext.sources.map((s, i) => (
+                        <li key={i}>
+                          <span className="rag-source-file">{s.source}</span>
+                          <span className="rag-source-excerpt">{s.excerpt.slice(0, 140)}…</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
+            )}
+          </section>
+        )}
       </main>
     </div>
   );
@@ -271,6 +310,7 @@ const css = `
 .zones { grid-column: 1; grid-row: 1; }
 .gauge-panel { grid-column: 2; grid-row: 1 / span 2; }
 .log { grid-column: 1; grid-row: 2; }
+.rag { grid-column: 1; grid-row: 3; }
 .zone-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -302,4 +342,36 @@ const css = `
 .log-time { color: var(--muted); }
 .log-zone { color: var(--caution); font-weight: 700; }
 .log-reason { color: var(--text); }
+.rag-loading {
+  display: flex; align-items: center; gap: 8px;
+  color: var(--muted); font-size: 13px; font-family: "Courier New", monospace;
+}
+.pulse-dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: var(--caution);
+  animation: pulse 1s ease-in-out infinite;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+.rag-warning {
+  font-size: 14px; line-height: 1.6; color: var(--text);
+  margin: 0 0 14px; padding: 12px; border-left: 3px solid var(--caution);
+  background: rgba(255,176,32,0.06);
+}
+.rag-empty { color: var(--muted); font-size: 13px; margin: 0 0 14px; }
+.rag-sources-label {
+  font-size: 11px; color: var(--muted); letter-spacing: 1px;
+  text-transform: uppercase; margin-bottom: 8px; font-family: "Courier New", monospace;
+}
+.rag-sources ul { list-style: none; margin: 0; padding: 0; }
+.rag-sources li {
+  padding: 8px 0; border-bottom: 1px solid var(--grid); font-size: 12px;
+}
+.rag-source-file {
+  display: block; color: var(--caution); font-weight: 700;
+  font-family: "Courier New", monospace; margin-bottom: 2px;
+}
+.rag-source-excerpt { color: var(--muted); line-height: 1.4; }
 `;
