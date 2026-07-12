@@ -22,14 +22,17 @@ import json
 import random
 import sys
 from dataclasses import asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from sensor_simulator import Reading, SAFE_RANGES, GAS_DANGER_THRESHOLD, ZONES, _now, _unit_for
 from risk_engine import PermitLog, RiskEngine
+import cv_timeline
 
 # rag_agent.py lives in a sibling folder (../rag-agent), not installed as a
 # package — add it to the path so we can import it directly.
@@ -54,6 +57,20 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Serve the CV module's annotated video directly so the dashboard can
+# play it in a <video> tag without copying the file into frontend/.
+# no-cache headers matter here specifically: if you re-run detect.py and
+# replace annotated.mp4, browsers will otherwise keep serving the old
+# cached copy from the same URL indefinitely.
+class NoCacheStaticFiles(StaticFiles):
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
+        return response
+
+if cv_timeline.cv_available():
+    app.mount("/media", NoCacheStaticFiles(directory=str(cv_timeline.CV_OUTPUT_DIR)), name="media")
 
 
 async def async_run_scenario(danger_zone: str = "zone_4", ramp_seconds: int = 180,
@@ -134,7 +151,12 @@ async def send_rag_context(websocket: WebSocket, alert: dict, lock: asyncio.Lock
 
 @app.get("/")
 def health():
-    return {"status": "ok", "service": "SafeNet backend", "rag_available": RAG_AVAILABLE}
+    return {
+        "status": "ok",
+        "service": "SafeNet backend",
+        "rag_available": RAG_AVAILABLE,
+        "cv_available": cv_timeline.cv_available(),
+    }
 
 
 @app.websocket("/ws/stream")
@@ -143,7 +165,19 @@ async def stream(websocket: WebSocket, ramp_seconds: int = 180,
     await websocket.accept()
 
     permit_log = PermitLog()
-    engine = RiskEngine(permit_log)
+    scenario_start = datetime.now(timezone.utc)
+
+    def worker_near_hazard(check_zone: str) -> bool:
+        # Only the danger zone has a camera in this demo. The dashboard's
+        # video plays on loop, so we mirror that by looping the lookup
+        # against elapsed wall-clock time since this connection started.
+        if not cv_timeline.cv_available() or check_zone != zone:
+            return False
+        elapsed = (datetime.now(timezone.utc) - scenario_start).total_seconds()
+        in_zone, _violation = cv_timeline.worker_status_at(elapsed)
+        return in_zone
+
+    engine = RiskEngine(permit_log, worker_near_hazard=worker_near_hazard)
     send_lock = asyncio.Lock()
 
     async def safe_send(payload: dict):
@@ -163,6 +197,19 @@ async def stream(websocket: WebSocket, ramp_seconds: int = 180,
 
             ts = datetime.fromisoformat(reading.timestamp)
             alert = engine.ingest_gas_reading(reading.zone, reading.value, ts, progress)
+
+            # Live CV status for the danger zone, sent alongside the risk
+            # score so the dashboard can show "worker detected" in real
+            # time without inspecting the video itself.
+            if reading.zone == zone and cv_timeline.cv_available():
+                elapsed = (datetime.now(timezone.utc) - scenario_start).total_seconds()
+                in_zone, violation = cv_timeline.worker_status_at(elapsed)
+                await safe_send({
+                    "type": "cv_status",
+                    "zone": reading.zone,
+                    "worker_in_zone": in_zone,
+                    "violation": violation,
+                })
 
             # Risk score update every gas tick, for a live-moving gauge —
             # separate from the one-time alert event.

@@ -3,6 +3,7 @@ import { useState, useRef, useCallback } from "react";
 const ZONES = ["zone_1", "zone_2", "zone_3", "zone_4", "zone_5"];
 const GAS_DANGER_THRESHOLD = 80;
 const WS_URL = "ws://localhost:8000/ws/stream";
+const VIDEO_URL = "http://localhost:8000/media/annotated.mp4";
 
 function statusColor(score) {
   if (score >= 60) return "var(--danger)";
@@ -47,17 +48,29 @@ export default function App() {
   const [alert, setAlert] = useState(null);
   const [ragContext, setRagContext] = useState(null); // null = nothing yet, "loading" = waiting, or the payload
   const [log, setLog] = useState([]);
+  const [cvStatus, setCvStatus] = useState(null); // {worker_in_zone, violation} | null
+  const [videoError, setVideoError] = useState(null);
   const wsRef = useRef(null);
+  const videoRef = useRef(null);
 
   const startDemo = useCallback(() => {
     if (wsRef.current) wsRef.current.close();
     setAlert(null);
     setRagContext(null);
     setLog([]);
+    setCvStatus(null);
     setZoneData({});
     setRiskScores({});
     setRunning(true);
     setStatus("live");
+
+    if (videoRef.current) {
+      // Don't touch currentTime here — setting it before the video's
+      // metadata has loaded can throw/trigger a real error event in some
+      // browsers, which then leaves the video stuck in an error state.
+      // play() alone is safe to call any time; the browser queues it.
+      videoRef.current.play().catch(() => {}); // autoplay may be blocked until user interaction; button click counts
+    }
 
     const ws = new WebSocket(`${WS_URL}?ramp_seconds=60&interval=0.5&zone=zone_4`);
     wsRef.current = ws;
@@ -81,6 +94,8 @@ export default function App() {
         }));
       } else if (msg.type === "risk_update") {
         setRiskScores((prev) => ({ ...prev, [msg.zone]: msg.risk_score }));
+      } else if (msg.type === "cv_status") {
+        setCvStatus(msg);
       } else if (msg.type === "compound_risk_alert") {
         setAlert(msg);
         setRagContext("loading");
@@ -146,6 +161,43 @@ export default function App() {
         <section className="panel gauge-panel">
           <h2>Gas Level — {focusZone.replace("zone_", "Zone ")}</h2>
           <GasGauge zone={focusZone} value={focusGas} />
+        </section>
+
+        <section className="panel cv-panel">
+          <h2>Camera — {focusZone.replace("zone_", "Zone ")} (CV Module)</h2>
+          <div className="video-wrap">
+            <video
+              ref={videoRef}
+              src={VIDEO_URL}
+              muted
+              loop
+              playsInline
+              className="cv-video"
+              onError={(e) => {
+                const mediaError = e.currentTarget.error;
+                console.error("Video load error:", mediaError?.code, mediaError?.message);
+                setVideoError(
+                  `Could not load video (code ${mediaError?.code ?? "?"}) — retrying…`
+                );
+                // Auto-recover: reload the source and try again once.
+                // Handles the case where play() was called before the
+                // browser had fully initialized the media pipeline.
+                setTimeout(() => {
+                  if (videoRef.current) {
+                    videoRef.current.load();
+                    videoRef.current.play().catch(() => {});
+                  }
+                }, 500);
+              }}
+              onLoadedData={() => setVideoError(null)}
+            />
+            {videoError && <div className="cv-video-error">{videoError}</div>}
+            {cvStatus?.worker_in_zone && (
+              <div className={`cv-badge ${cvStatus.violation ? "cv-badge-violation" : "cv-badge-present"}`}>
+                {cvStatus.violation ? `⚠ ${cvStatus.violation}` : "Worker in zone"}
+              </div>
+            )}
+          </div>
         </section>
 
         <section className="panel log">
@@ -215,10 +267,24 @@ const css = `
   --danger: #ff3b30;
 }
 * { box-sizing: border-box; }
+html, body {
+  margin: 0 !important;
+  padding: 0 !important;
+  width: 100%;
+  height: 100%;
+}
+#root {
+  max-width: none !important;
+  width: 100% !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  text-align: left !important;
+}
 .app {
   background: var(--bg);
   color: var(--text);
   min-height: 100vh;
+  width: 100%;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 .topbar {
@@ -311,6 +377,21 @@ const css = `
 .gauge-panel { grid-column: 2; grid-row: 1 / span 2; }
 .log { grid-column: 1; grid-row: 2; }
 .rag { grid-column: 1; grid-row: 3; }
+.cv-panel { grid-column: 2; grid-row: 3; }
+.video-wrap { position: relative; width: 100%; aspect-ratio: 16 / 9; border-radius: 4px; overflow: hidden; background: #000; }
+.cv-video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.cv-video-error {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+  color: var(--muted); font-size: 12px; font-family: "Courier New", monospace; text-align: center; padding: 16px;
+}
+.cv-badge {
+  position: absolute; top: 10px; left: 10px;
+  padding: 6px 12px; border-radius: 4px;
+  font-family: "Courier New", monospace; font-size: 12px; font-weight: 700;
+  letter-spacing: 0.5px;
+}
+.cv-badge-present { background: var(--caution); color: #14171c; }
+.cv-badge-violation { background: var(--danger); color: #fff; }
 .zone-grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);

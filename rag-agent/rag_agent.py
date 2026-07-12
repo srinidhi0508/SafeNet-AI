@@ -22,7 +22,7 @@ import time
 import chromadb
 from dotenv import load_dotenv
 from google import genai
-from google.genai.errors import ClientError
+from google.genai.errors import APIError
 
 load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
@@ -109,7 +109,7 @@ def generate_warning(situation: str, n_results: int = 3, retry_waits=(16, 30, 60
                 model=GEMINI_MODEL, contents=prompt
             )
             return {"warning": response.text.strip(), "sources": matches, "error": None}
-        except ClientError as e:
+        except APIError as e:
             last_error = e
             if "limit: 0" in str(e):
                 break
@@ -124,8 +124,9 @@ def generate_warning(situation: str, n_results: int = 3, retry_waits=(16, 30, 60
         )
     else:
         error_msg = (
-            f"Gemini rate limit persisted after {len(retry_waits) + 1} "
-            f"attempts — showing retrieved incidents only. ({last_error})"
+            f"Gemini API error persisted after {len(retry_waits) + 1} "
+            f"attempts (rate limit or temporary server overload) — showing "
+            f"retrieved incidents only. ({last_error})"
         )
 
     return {"warning": None, "sources": matches, "error": error_msg}
